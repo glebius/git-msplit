@@ -24,7 +24,15 @@ my %opts;
 getopts("dm:r:", \%opts);
 die("Usage: $0 -m map-file [-r revision] [-d]\n")
 	unless defined($opts{m});
-$opts{r} = "HEAD" unless defined($opts{r});
+
+if (defined($opts{r})) {
+	# XXXGL: not a true git-check-ref-format
+	die("Bad reference name $opts{r}")
+		unless($opts{r} =~ /^([\w\/.-]+)$/);
+	$opts{r} = $1;
+} else {
+	$opts{r} = "HEAD";
+}
 
 my %map;	# map of what to split
 my @allcommits;	# history to run through
