@@ -29,6 +29,7 @@ $opts{r} = "HEAD" unless defined($opts{r});
 my %map;	# map of what to split
 my @allcommits;	# history to run through
 
+# Open the main workhorse to read data
 my ($pid, $rd, $wr);
 $pid = open2($rd, $wr, &GIT, 'cat-file', '--batch');
 die("open2(): $!") unless (defined $pid);
@@ -154,14 +155,13 @@ sub readmap() {
 }
 
 sub readallcommits() {
-	local (*WR, *RD);
-	my $pid;
+	my ($pid, $rd, $wr);
 	my $commits = 0;
 
-	$pid = open2(\*RD, \*WR, &GIT, 'rev-list', '--reverse', $opts{r});
+	$pid = open2($rd, $wr, &GIT, 'rev-list', '--reverse', $opts{r});
 	die("open2(): $!") unless (defined $pid);
 
-	while (<RD>) {
+	while (<$rd>) {
 		die("Bad data in $_")
 			unless ($_ =~ &HRE);
 		push(@allcommits, $1);
@@ -198,8 +198,7 @@ sub readtree($) {
 sub processbranch($$$)
 {
 	my ($branch, $commit, $tree) = @_;
-	local (*WR, *RD);
-	my $pid;
+	my ($pid, $rd, $wr);
 	my @args;
 	my $hash;
 
@@ -214,19 +213,19 @@ sub processbranch($$$)
 	$ENV{GIT_COMMITTER_EMAIL} = $commit->{c_email};
 	$ENV{GIT_COMMITTER_DATE} = $commit->{c_date};
 
-	@args = ( \*RD, \*WR, &GIT, 'commit-tree', '-F', '-');
+	@args = (&GIT, 'commit-tree', '-F', '-');
 	if (defined($branch->{head})) {
 		push(@args, '-p', $branch->{head});
 	}
 	push(@args, $tree);
 	
-	$pid = open2(@args);
+	$pid = open2($rd, $wr, @args);
 	die("open2(): $!") unless (defined $pid);
 
-	printf(WR "%s", $commit->{log});
-	close(WR);
+	printf($wr "%s", $commit->{log});
+	close($wr);
 
-	$hash = <RD>;
+	$hash = <$rd>;
 	die("Bad output from write-tree $hash")
 		unless($hash =~ &HRE);
 	$hash = $1;
