@@ -4,7 +4,6 @@ use strict;
 
 use Getopt::Std;
 use IPC::Open2;
-use Dumpvalue;
 
 $ENV{PATH} = "";
 
@@ -17,7 +16,7 @@ sub debug;
 sub readmap();
 sub readallcommits();
 sub readtree($);
-sub processbranch($$$);
+sub append($$$);
 sub processtree($$$);
 
 my %opts;
@@ -113,6 +112,7 @@ sub debug
 	printf(@_) if defined($opts{d});
 }
 
+# Init: parse map file
 sub readmap() {
 	my $mapfd;
 	my $branches = 0;
@@ -154,6 +154,7 @@ sub readmap() {
 	debug("Read %d branches from map\n", $branches);
 }
 
+# Init: populate history that we are going to process
 sub readallcommits() {
 	my ($pid, $rd, $wr);
 	my $commits = 0;
@@ -170,6 +171,7 @@ sub readallcommits() {
 	debug("%d commits to process\n", $#allcommits);
 }
 
+# Return $tree object for a given hash
 sub readtree($) {
 	my $hash = shift;
 	my (@header, $text);
@@ -195,13 +197,16 @@ sub readtree($) {
 	return $tree;
 }
 
-sub processbranch($$$)
+# Append a new commit on $branch, taking metadata from $commit
+# and using $tree as tree.
+sub append($$$)
 {
 	my ($branch, $commit, $tree) = @_;
 	my ($pid, $rd, $wr);
 	my @args;
 	my $hash;
 
+	# If $commit doesn't change this subtree, skip.
 	if (defined($branch->{tree}) && $branch->{tree} eq $tree) {
 		return;
 	}
@@ -237,12 +242,14 @@ sub processbranch($$$)
 	system(&GIT, 'update-ref', 'refs/heads/' . $branch->{name}, $hash);
 }
 
+# Recursively process changes for $commit, with [sub]tree $tree
+# and [sub]map $map
 sub processtree($$$) {
 	my ($commit, $tree, $map) = @_;
 
 	foreach my $dir (keys(%$tree)) {
 		if (defined($map->{branches}->{$dir})) {
-			processbranch($map->{branches}->{$dir}, $commit,
+			append($map->{branches}->{$dir}, $commit,
 			    $tree->{$dir});
 		}
 		if (defined($map->{dirs}->{$dir})) {
