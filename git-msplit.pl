@@ -18,6 +18,7 @@ sub readallcommits();
 sub readtree($);
 sub append($$$);
 sub processtree($$$);
+sub updaterefs($);
 
 my %opts;
 getopts("dm:r:", \%opts);
@@ -102,9 +103,10 @@ foreach my $hash (@allcommits) {
 	$tree = readtree($commit->{tree});
 
 	processtree($commit, $tree, \%map);
-	printf("%d/%d\r", $n++, $#allcommits);
+	debug("%d/%d\r", $n++, $#allcommits);
 }
 waitpid($pid, 0);
+updaterefs(\%map);
 return;
 
 sub debug
@@ -238,8 +240,6 @@ sub append($$$)
 
 	$branch->{head} = $hash;
 	$branch->{tree} = $tree;
-
-	system(&GIT, 'update-ref', 'refs/heads/' . $branch->{name}, $hash);
 }
 
 # Recursively process changes for $commit, with [sub]tree $tree
@@ -256,5 +256,22 @@ sub processtree($$$) {
 			processtree($commit, readtree($tree->{$dir}),
 			    $map->{dirs}->{$dir});
 		}
+	}
+}
+
+# Update branch pointers
+sub updaterefs($)
+{
+	my $map = shift;
+
+	foreach my $dir (keys(%{$map->{branches}})) {
+		system(&GIT, 'update-ref',
+		    'refs/heads/' . $map->{branches}->{$dir}->{name},
+		    $map->{branches}->{$dir}->{head});
+		debug("%s -> %s\n", $map->{branches}->{$dir}->{name},
+		    $map->{branches}->{$dir}->{head});
+	}
+	foreach my $dir (keys(%{$map->{dirs}})) {
+		updaterefs($map->{dirs}->{$dir});
 	}
 }
