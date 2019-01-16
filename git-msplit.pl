@@ -10,7 +10,7 @@ $ENV{PATH} = "";
 
 use constant GIT	=> '/usr/local/bin/git';
 use constant HRE	=> '^([0-9a-f]{40})$';
-use constant TRE	=> '^[0-7]{6} (tree|blob) ([0-9a-f]{40})\t(.+)$';
+use constant TRE	=> '^([0-7]{5,6}) (.+?)\0(.{20})';
 use constant ARE	=> '^(.*) <([^>]+)> ([0-9]+) \+0000$';
 
 sub debug;
@@ -172,21 +172,26 @@ sub readallcommits() {
 
 sub readtree($) {
 	my $hash = shift;
+	my (@header, $text);
 	my $tree;
-	local (*WR, *RD);
-	my $pid;
 
-	$pid = open2(\*RD, \*WR, &GIT, 'cat-file', '-p', $hash);
-	die("open2(): $!") unless (defined $pid);
+	printf($wr "%s\n", $hash);
+	@header = split(/ /, readline($rd));
 
-	while (<RD>) {
-		die("Bad data in $_")
-			unless($_ =~ &TRE);
-		$tree->{$3} = $2
-			if ($1 eq "tree");
+	die("Unexpected input @header")
+		unless($header[0] eq $hash && $header[1] eq "tree");
+
+	die("read(): $!")
+		unless(read($rd, $text, $header[2]) == $header[2]);
+
+	while ($text) {
+		die("Bad data in tree $hash: $text")
+			unless($text =~ s/${\TRE}//s);
+		next unless (oct($1) == 040000);
+		$tree->{$2} = unpack("H*", $3);
 	}
-	waitpid($pid, 0);
 
+	readline($rd);	# Eat extra LF from git cat-file --batch
 	return $tree;
 }
 
