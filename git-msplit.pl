@@ -19,13 +19,17 @@ die("Usage: $0 -m map-file [-r revision] [-d]\n")
 	unless defined($opts{m});
 $opts{r} = "HEAD" unless defined($opts{r});
 
-my (%map, @allcommits);
+my ($pid, $rd, $wr);
+
+$pid = open2($rd, $wr, &GIT, 'cat-file', '--batch');
+die("open2(): $!") unless (defined $pid);
 
 sub debug
 {
 	printf(@_) if defined($opts{d});
 }
 
+my %map;
 sub readmap() {
 	my $mapfd;
 	my $branches = 0;
@@ -67,6 +71,7 @@ sub readmap() {
 	debug("Read %d branches from map\n", $branches);
 }
 
+my @allcommits;
 sub readallcommits() {
 	local (*WR, *RD);
 	my $pid;
@@ -82,65 +87,6 @@ sub readallcommits() {
 	}
 	waitpid($pid, 0);
 	debug("%d commits to process\n", $#allcommits);
-}
-
-sub readcommit($) {
-	my $hash = shift;
-	my $commit;
-	local (*WR, *RD);
-	my $pid;
-
-	$pid = open2(\*RD, \*WR, &GIT, 'cat-file', '-p', $hash);
-	die("open2(): $!") unless (defined $pid);
-
-	while (<RD>) {
-		my ($key, $val);
-
-		chomp;
-		($key, $val) = split(/ /, $_, 2);
-		last unless defined($key);
-
-		if ($key eq "tree") {
-			die("Bad data in $val")
-				unless($val =~ &HRE);
-			$commit->{tree} = $1;
-			next;
-		}
-		if ($key eq "parent") {
-			die("Bad data in $val")
-				unless($val =~ &HRE);
-			$commit->{parent} = $1;
-			next;
-		}
-		if ($key eq "author") {
-			die("Bad data in $val")
-				unless($val =~ &ARE);
-			$commit->{a_name} = $1;
-			$commit->{a_email} = $2;
-			$commit->{a_date} = $3;
-			next;
-		}
-		if ($key eq "committer") {
-			die("Bad data in $val")
-				unless($val =~ &ARE);
-			$commit->{c_name} = $1;
-			$commit->{c_email} = $2;
-			$commit->{c_date} = $3;
-			next;
-		}
-	}
-	while (<RD>) {
-		$commit->{log} .= $_;
-	}
-	waitpid($pid, 0);
-
-	return $commit;
-#	printf("%s\n", $hash);
-#	foreach my $key (keys(%$commit)) {
-#		next if ($key eq "log");
-#		printf("%s %s\n", $key, $commit->{$key});
-#	}
-#	printf("%s\n", $commit->{log});
 }
 
 sub readtree($) {
@@ -232,14 +178,70 @@ readallcommits();
 $ENV{TZ} = "";
 
 my $n = 0;
-
 foreach my $hash (@allcommits) {
+	my (@header, $text);
 	my $commit;
 	my $tree;
 
-	$commit = readcommit($hash);
+	printf($wr "%s\n", $hash);
+	@header = split(/ /, readline($rd));
+
+	die("Unexpected input @header")
+		unless($header[0] eq $hash && $header[1] eq "commit");
+
+	die("read(): $!")
+		unless(read($rd, $text, $header[2]) == $header[2]);
+
+	my $inbody = 0;
+	for (split /^/, $text) {
+
+		unless ($inbody) {
+			my ($key, $val);
+
+			chomp;
+			($key, $val) = split(/ /, $_, 2);
+
+			if (not defined($key)) {
+				$inbody = "true";
+				next;
+			}
+			if ($key eq "tree") {
+				die("Bad data in $val")
+					unless($val =~ &HRE);
+				$commit->{tree} = $1;
+				next;
+			}
+			if ($key eq "parent") {
+				die("Bad data in $val")
+					unless($val =~ &HRE);
+				$commit->{parent} = $1;
+				next;
+			}
+			if ($key eq "author") {
+				die("Bad data in $val")
+					unless($val =~ &ARE);
+				$commit->{a_name} = $1;
+				$commit->{a_email} = $2;
+				$commit->{a_date} = $3;
+				next;
+			}
+			if ($key eq "committer") {
+				die("Bad data in $val")
+					unless($val =~ &ARE);
+				$commit->{c_name} = $1;
+				$commit->{c_email} = $2;
+				$commit->{c_date} = $3;
+				next;
+			}
+		}
+		$commit->{log} .= $_;
+	}
+	readline($rd);	# Eat extra LF from git cat-file --batch
+
 	$tree = readtree($commit->{tree});
 
 	processtree($commit, $tree, \%map);
 	printf("%d/%d\r", $n++, $#allcommits);
 }
+
+waitpid($pid, 0);
