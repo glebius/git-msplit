@@ -113,6 +113,7 @@ foreach my $hash (@allcommits) {
 	processtree($commit, $tree, \%map);
 	debug("%d/%d\r", $n++, $#allcommits);
 }
+close($wr);
 waitpid($pid, 0);
 updaterefs(\%map);
 return;
