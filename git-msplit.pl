@@ -116,7 +116,7 @@ foreach my $hash (@allcommits) {
 close($wr);
 waitpid($pid, 0);
 updaterefs(\%map);
-return;
+exit 0;
 
 sub debug
 {
@@ -274,6 +274,7 @@ sub updaterefs($)
 	my $map = shift;
 
 	foreach my $dir (keys(%{$map->{branches}})) {
+		next unless defined($map->{branches}->{$dir}->{head});
 		system(&GIT, 'update-ref',
 		    'refs/heads/' . $map->{branches}->{$dir}->{name},
 		    $map->{branches}->{$dir}->{head});
