@@ -21,8 +21,8 @@ sub processtree($$$);
 sub updaterefs($);
 
 my %opts;
-getopts("dm:r:", \%opts);
-die("Usage: $0 -m map-file [-r revision] [-d]\n")
+getopts("c:dm:r:", \%opts);
+die("Usage: $0 -m map-file [-r revision] [-d] [-c entries]\n")
 	unless defined($opts{m});
 
 if (defined($opts{r})) {
@@ -36,9 +36,15 @@ if (defined($opts{r})) {
 
 my %map;	# map of what to split
 my @allcommits;	# history to run through
+my ($pid, $rd, $wr); # spawned 'git cat-file --batch'
+my $cache;	# cache of tree object
+
+if (defined($opts{c})) {
+	require Cache::LRU;
+	$cache = Cache::LRU->new(size => $opts{c});
+}
 
 # Open the main workhorse to read data
-my ($pid, $rd, $wr);
 $pid = open2($rd, $wr, &GIT, 'cat-file', '--batch');
 die("open2(): $!") unless (defined $pid);
 
@@ -188,6 +194,10 @@ sub readtree($) {
 	my (@header, $text);
 	my $tree;
 
+	if (defined($cache) && defined($tree = $cache->get($hash))) {
+		return $tree;
+	}
+
 	printf($wr "%s\n", $hash);
 	@header = split(/ /, readline($rd));
 
@@ -203,8 +213,10 @@ sub readtree($) {
 		next unless (oct($1) == 040000);
 		$tree->{$2} = unpack("H*", $3);
 	}
-
 	readline($rd);	# Eat extra LF from git cat-file --batch
+
+	$cache->set($hash => $tree)
+		if defined($cache);
 	return $tree;
 }
 
