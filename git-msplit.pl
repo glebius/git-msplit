@@ -14,6 +14,7 @@ use constant ARE	=> '^(.*) <([^>]+)> ([0-9]+) \+0000$';
 
 sub debug;
 sub readmap();
+sub checkmap($$);
 sub readallcommits();
 sub readcommit($);
 sub readtree($);
@@ -22,9 +23,12 @@ sub processtree($$$);
 sub updaterefs($);
 
 my %opts;
-getopts("c:dm:r:", \%opts);
-die("Usage: $0 -m map-file [-r revision] [-d] [-c entries]\n")
-	unless defined($opts{m});
+getopts("c:dm:r:s:", \%opts);
+unless (defined($opts{m})) {
+	printf("Usage: %s -m map-file [-d] [-c entries]\n", $0);
+	printf("       [-s start-revision] [-r end-revision]\n");
+	exit(0);
+}
 
 if (defined($opts{r})) {
 	# XXXGL: not a true git-check-ref-format
@@ -50,6 +54,14 @@ $pid = open2($rd, $wr, &GIT, 'cat-file', '--batch');
 die("open2(): $!") unless (defined $pid);
 
 readmap();
+if (defined($opts{s})) {
+	# XXXGL: not a true git-check-ref-format
+	die("Bad reference name $opts{s}")
+		unless($opts{s} =~ /^([\w\/.-]+)$/);
+	$opts{s} = $1;
+	# Make sure that existing branches match tree state ar start point
+	checkmap(\%map, readtree(%{readcommit($opts{s})}{tree}));
+}
 readallcommits();
 
 $ENV{TZ} = "";
@@ -93,16 +105,28 @@ sub readmap() {
 		$dir = \%map;
 		for (my $d = 0; $d <= $#dirs; $d++) {
 			if ($d == $#dirs) {
+				my ($hash, $tree);
+
 				# XXXGL: this doesn't match # what git
 				# imposes on branch name.
 				die("Bad branch name $line[1]")
 					unless($line[1] =~ /^([\w\/.-]+)$/);
 				$line[1] = $1;
+				$hash = readbranch($line[1]);
+				debug("%s branch %s\n", defined($hash) ?
+				    "Existing" : "New", $line[1]);
+				if (defined($hash)) {
+					die("No start revision and existing ".
+					    "branch $line[1]")
+						unless defined($opts{s});
+					$tree = %{readcommit($hash)}{tree};
+				} else {
+					$tree = undef;
+				}
 				$dir->{branches}->{$dirs[$d]} = {
 					name => $line[1],
-					ref => undef,
-					head => undef,
-					tree => undef,
+					head => $hash,
+					tree => $tree,
 				};
 				$branches++;
 			} else {
@@ -117,12 +141,55 @@ sub readmap() {
 	debug("Read %d branches from map\n", $branches);
 }
 
+sub checkmap($$) {
+	my ($map, $tree) = @_;
+
+	foreach my $dir (keys(%{$map->{branches}})) {
+		if (defined($map->{branches}->{$dir}->{head})) {
+			die("Existing $map->{branches}->{$dir}->{name} ".
+			    "does not match tree state at $opts{s}: ".
+			    "expected tree $tree->{$dir}")
+				unless($map->{branches}->{$dir}->{tree} eq
+				    $tree->{$dir});
+			debug("Branch %s to be appended at %s\n",
+			    $map->{branches}->{$dir}->{name},
+			    $map->{branches}->{$dir}->{head});
+		}
+	}
+	foreach my $dir (keys(%{$map->{dirs}})) {
+		checkmap($map->{dirs}->{$dir}, readtree($tree->{$dir}));
+	}
+}
+
+# Resolve existing branch
+sub readbranch($) {
+	my $name = shift;
+	my ($pid, $rd, $wr);
+	my $hash;
+
+	$pid = open2($rd, $wr, &GIT, 'rev-parse', '--verify', '-q', $name);
+	die("open2(): $!") unless (defined $pid);
+	$hash = <$rd>;
+	return undef
+		unless defined($hash);
+	die("Bad output from write-tree $hash")
+		unless($hash =~ &HRE);
+	$hash = $1;
+	waitpid($pid, 0);
+
+	return $hash;
+}
+
 # Init: populate history that we are going to process
 sub readallcommits() {
 	my ($pid, $rd, $wr);
-	my $commits = 0;
+	my @args;
 
-	$pid = open2($rd, $wr, &GIT, 'rev-list', '--reverse', $opts{r});
+	@args = (&GIT, 'rev-list', '--reverse', $opts{r});
+	if (defined($opts{s})) {
+		push(@args, "^" . $opts{s});
+	}
+	$pid = open2($rd, $wr, @args);
 	die("open2(): $!") unless (defined $pid);
 
 	while (<$rd>) {
