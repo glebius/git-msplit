@@ -80,6 +80,7 @@ foreach my $hash (@allcommits) {
 close($wr);
 waitpid($pid, 0);
 updaterefs(\%map);
+debug("Split finished at %s\n", $allcommits[-1]);
 exit 0;
 
 sub debug
@@ -198,7 +199,6 @@ sub readallcommits() {
 		push(@allcommits, $1);
 	}
 	waitpid($pid, 0);
-	debug("%d commits to process\n", $#allcommits);
 }
 
 # Return $commit object for a given hash
