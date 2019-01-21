@@ -15,6 +15,7 @@ use constant ARE	=> '^(.*) <([^>]+)> ([0-9]+) \+0000$';
 sub debug;
 sub readmap();
 sub checkmap($$);
+sub checkdeleted($$);
 sub readallcommits();
 sub readcommit($);
 sub readtree($);
@@ -77,10 +78,11 @@ foreach my $hash (@allcommits) {
 	processtree($commit, $tree, \%map);
 	debug("%d/%d\r", $n++, $#allcommits);
 }
-close($wr);
-waitpid($pid, 0);
 updaterefs(\%map);
 debug("Split finished at %s\n", $allcommits[-1]);
+checkdeleted(\%map, readtree(%{readcommit($allcommits[-1])}{tree}));
+close($wr);
+waitpid($pid, 0);
 exit 0;
 
 sub debug
@@ -159,6 +161,23 @@ sub checkmap($$) {
 	}
 	foreach my $dir (keys(%{$map->{dirs}})) {
 		checkmap($map->{dirs}->{$dir}, readtree($tree->{$dir}));
+	}
+}
+
+sub checkdeleted($$) {
+	my ($map, $tree) = @_;
+
+	foreach my $dir (keys(%{$map->{branches}})) {
+		if (defined($map->{branches}->{$dir}->{head}) &&
+		    not defined($tree->{$dir})) {
+			debug("Directory corresponding to %s no longer ".
+			    "exist at %s\n",
+			    $map->{branches}->{$dir}->{name},
+			    $allcommits[-1]);
+		}
+	}
+	foreach my $dir (keys(%{$map->{dirs}})) {
+		checkdeleted($map->{dirs}->{$dir}, readtree($tree->{$dir}));
 	}
 }
 
