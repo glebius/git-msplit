@@ -149,6 +149,9 @@ sub checkmap($$) {
 
 	foreach my $dir (keys(%{$map->{branches}})) {
 		if (defined($map->{branches}->{$dir}->{head})) {
+			die("Specified $map->{branches}->{$dir}->{name} ".
+			    "doesn't exist at $opts{s}")
+				unless(defined($tree->{$dir}));
 			die("Existing $map->{branches}->{$dir}->{name} ".
 			    "does not match tree state at $opts{s}: ".
 			    "expected tree $tree->{$dir}")
