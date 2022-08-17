@@ -10,7 +10,7 @@ $ENV{PATH} = "";
 use constant GIT	=> '/usr/local/bin/git';
 use constant HRE	=> '^([0-9a-f]{40})$';
 use constant TRE	=> '^([0-7]{5,6}) (.+?)\0(.{20})';
-use constant ARE	=> '^(.*) <([^>]+)> ([0-9]+) [+-][0-9]{4}$';
+use constant ARE	=> '^(.*) <([^>]*)> ([0-9]+) [+-][0-9]{4}$';
 
 sub debug;
 sub readmap();
